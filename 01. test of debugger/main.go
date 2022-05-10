@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 )
@@ -34,6 +35,7 @@ func letItBurn(presents bool) {
 	} else {
 		fmt.Println("Oh, nooo!Work again?! \nDobby will never be free...")
 	}
+	os.Exit(0)
 }
 
 func retreat() {
